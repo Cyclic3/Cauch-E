@@ -4,7 +4,7 @@ from typing import TextIO
 import discord
 import argparse
 
-from cauch_e import config, bot
+from cauch_e import config, bot, db
 
 def main() -> int:
   parser = argparse.ArgumentParser(
@@ -13,8 +13,9 @@ def main() -> int:
     epilog = "Good luck!"
   )
   # Default the config argument to a nice value, that we include in the gitignore to stop funny token leak
-  parser.add_argument("config", default="config.yaml", nargs='?')
-  parser.add_argument("--update-config", action="store_true")
+  parser.add_argument("config", default="config.yaml", nargs='?', help="The YAML configuration file")
+  parser.add_argument("--update-config", action="store_true", help="(Re)generates the configuration file")
+  parser.add_argument("--sync", action="store_true", help="Synchronises the commands for the bot. Dev feature.")
 
   args = parser.parse_args()
 
@@ -58,7 +59,9 @@ def main() -> int:
     print(f"The config file '{args.config}' was not found. Try using --update-config to create a new config file.")
     return 1
 
-  client = bot.Client()
+  db.load_db()
+
+  client = bot.Client(do_sync=args.sync)
   client.start_bot()
 
   return 0
