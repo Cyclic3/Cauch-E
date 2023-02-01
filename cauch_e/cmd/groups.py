@@ -1,3 +1,4 @@
+import asyncio
 import dataclasses
 import datetime
 import time
@@ -9,7 +10,7 @@ from discord.ext import commands
 import cauch_e.db
 import cauch_e.error
 import cauch_e.config
-from .common import admin_only_params, normalise_module_code, is_in_server
+from .common import admin_only_params, normalise_module_code, is_in_server, is_admin
 
 
 class GroupCommands(commands.GroupCog, name="group"):
@@ -91,7 +92,7 @@ class GroupCommands(commands.GroupCog, name="group"):
         return
       group_id = groups[0]
 
-    invite_msg = await invitee.send(f"You have been invited to join a study group for {module} by {interaction.user.mention}. React with a :+1: to accept.")
+    invite_msg = await invitee.send(f"You have been invited to join a study group for {module} by {interaction.user.mention}. React with a :+1: to accept.\n\nIf you don't get a response when you accept, you should ask for another invite.")
     await invite_msg.add_reaction("👍")
     await interaction.response.send_message("Invite sent", ephemeral=True)
     def check_reaction(reaction: discord.Reaction, reactor: discord.Member):
@@ -115,7 +116,7 @@ class GroupCommands(commands.GroupCog, name="group"):
       return True
 
     if not check_crit():
-      await invite_msg.reply(content="Sorry, you are already in a group!")
+      await invite_msg.reply(content="You are already in a group for that module.")
 
     await interaction.user.send(content=f"Your invite for {module} was accepted by {interaction.user.mention}")
 
@@ -125,10 +126,18 @@ class GroupCommands(commands.GroupCog, name="group"):
   # def join
 
   @discord.app_commands.command(name="create-invite-only",
-                                description="Creates a group that is invite-only so you can invite your friends first. Allow others to join with /group invite-only False@@@")
+                                description="Create a group for your friends. Allow others to join with /group invite-only True")
   @discord.app_commands.describe(module="The module code")
   async def create_invite_only(self, interaction: discord.Interaction, module: str):
-    pass
+    user_id = interaction.user.id
+    def crit():
+      for group in groups.values():
+        if user_id in group.members:
+          return interaction.response.send_message("You are already in a group for that module.", ephemeral=True)
+
+    groups = cauch_e.db.driver.list_study_groups(module)
+    if interaction.user in (i for i in groups.items()):
+      pass
 
   @discord.app_commands.command(name="invite-only",
                                 description="Controls whether your group is invite-only, or if others can be assigned to it")
@@ -167,31 +176,40 @@ class GroupCommands(commands.GroupCog, name="group"):
       # Check to see if the user is already in a study group
       for group in study_groups.values():
         if user_id in group.members:
-          return False, interaction.response.send_message("You are already in a study group for this module.")
+          return False, interaction.response.send_message("You are already in a study group for this module.", ephemeral=True)
 
       if not cauch_e.db.driver.queue_for_study_group(module_code=module, member_id=user_id):
-        return False, interaction.response.send_message("You are already searching for a study group for this module.")
+        return False, interaction.response.send_message("You are already searching for a study group for this module.", ephemeral=True)
 
-      return True, interaction.response.send_message(f"Searching for study group. This may take up to {cauch_e.config.obj['study_group']['max_time']} hours, but if it takes longer, please contact the committee for manual group allocation.")
+      return True, interaction.response.send_message(f"Searching for study group. This may take up to {cauch_e.config.obj['study_group']['max_time']} hours, but if it takes longer, please contact the committee for manual group allocation.", ephemeral=True)
 
     should_stir, cont = crit()
     await cont
     if should_stir:
-      self.stir_groups(module)
+      await self.stir_groups(module)
 
-  @staticmethod
-  def stir_groups(*modules: str) -> List[cauch_e.db.StudyGroupInfo]:
+  @discord.app_commands.command(name="stir", description="Stirs all the groups. Admin only.")
+  @discord.app_commands.check(is_in_server)
+  @discord.app_commands.check(is_admin)
+  async def stir(self, interaction: discord.Interaction) -> None:
+    start = datetime.datetime.now()
+    await self.stir_groups()
+    await interaction.response.send_message(f"Stirred all groups in {datetime.datetime.now() - start}", ephemeral=True)
+
+  async def stir_groups(self, *modules: str) -> None:
     """Tries to create groups.
 
     While adding new users can of course create new groups, so can the passage of time,
     so this should be run periodically.
 
-    This function needs to not have someone jump in the DB and mess everything up, so it is not async.
-
     :param modules: The modules to update. Defaults to all.
     :return: A list of all the updated groups
     """
-    time_bound = datetime.datetime.now() - datetime.timedelta(hours=cauch_e.config.obj['study_group']['max_time'])
+    # Report that we're stirring
+    print("Stirring")
+    start = datetime.datetime.now()
+
+    time_bound = start - datetime.timedelta(hours=cauch_e.config.obj['study_group']['max_time'])
     lower_bound = cauch_e.config.obj['study_group']['lower_bound']
     upper_bound = cauch_e.config.obj['study_group']['upper_bound']
     target_size = cauch_e.config.obj['study_group']['target_size']
@@ -208,6 +226,8 @@ class GroupCommands(commands.GroupCog, name="group"):
     #
     # smh
     def grumble_pep3136(module_code: str):
+      # This function needs to not have someone jump in the DB and mess everything up, so it is not async.
+
       groups = list(cauch_e.db.driver.list_study_groups(module).values())
       # Sort the groups from oldest to newest
       groups.sort(key=lambda group: group.date_created)
@@ -265,11 +285,23 @@ class GroupCommands(commands.GroupCog, name="group"):
 
     if len(modules) == 0:
       modules = cauch_e.db.driver.list_modules().keys()
+
     for module in modules:
       grumble_pep3136(module)
 
-    return updated_groups
+    for group in updated_groups:
+      members = await asyncio.gather(*[self.bot.fetch_user(member_id) for member_id in group.members])
+      tag_str = ", ".join(member.mention for member in members)
+      await asyncio.gather(*[member.send(f"Your group for {group.module_code} is now {tag_str}") for member in members])
+    print(f"Stirring took {datetime.datetime.now() - start}")
+
+  async def stir_loop(self):
+    await asyncio.sleep(60) # Do first stir 60 seconds after start
+    while True:
+      await self.stir_groups()
+      await asyncio.sleep(60 * 60)
 
   def __init__(self, bot: commands.Bot):
+    asyncio.run_coroutine_threadsafe(self.stir_loop(), asyncio.get_running_loop())
     self.bot = bot
     super().__init__()

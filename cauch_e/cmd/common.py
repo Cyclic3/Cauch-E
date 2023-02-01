@@ -7,7 +7,7 @@ def normalise_module_code(module_code: str):
   return module_code.upper().replace(" ", "")
 
 def is_admin(interaction: discord.Interaction):
-  return cauch_e.config.obj["discord"]["admin_role"] in interaction.user.roles
+  return cauch_e.config.obj["discord"]["admin_role"] in (i.id for i in interaction.user.roles)
 
 def is_in_server(interaction: discord.Interaction):
   return interaction.guild is not None

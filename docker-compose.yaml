@@ -1,0 +1,7 @@
+services:
+  cauch-e:
+    build: .
+    restart: unless-stopped
+    volumes:
+      - ${PWD}/config.yaml:/opt/cauch-e/config.yaml
+      - ${PWD}/cauch-e.db:/opt/cauch-e/cauch-e.db

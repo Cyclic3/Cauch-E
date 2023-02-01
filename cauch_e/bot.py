@@ -50,6 +50,10 @@ class Client(commands.Bot):
   async def error_handler(self, interaction: discord.Interaction, error: discord.app_commands.AppCommandError) -> None:
     # It's not a problem if it's just a command check
     if isinstance(error, discord.app_commands.CheckFailure):
+      if isinstance(error, discord.app_commands.CommandOnCooldown):
+        await interaction.response.send_message(f"You can only use this command {error.cooldown.per} times every {error.cooldown.rate} seconds!", ephemeral=True)
+      elif isinstance(error, discord.app_commands.CheckFailure):
+        await interaction.response.send_message(f"You cannot use this command: either you are in DMs or are trying to use an admin command!", ephemeral=True)
       return
     await cauch_e.error.report_error(bot=self, interaction=interaction, message=f"Uncaught error: {error}", exn=error.__context__)
 
@@ -58,9 +62,8 @@ class Client(commands.Bot):
 
   async def setup_hook(self):
     await self.add_cog(OpenCommands(self))
-    await self.add_cog(groups.GroupCommands(self),)
-    # TODO: decide if we want this
-    # await self.add_cog(modules.ModuleCommands(self))
+    await self.add_cog(groups.GroupCommands(self))
+    await self.add_cog(modules.ModuleCommands(self))
     print("Added cogs")
 
   async def on_ready(self):

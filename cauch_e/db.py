@@ -16,10 +16,10 @@ class ModuleInfo:
   module_name: str
   """The full human-readable name of the module."""
 
-  role_id: int
+  # role_id: int
   """The id of the corresponding Discord role"""
 
-  channel_id: int
+  # channel_id: int
   """The id of the corresponding Discord channel"""
 
 @dataclasses.dataclass
@@ -53,10 +53,12 @@ class QueuedStudyGroupInfo:
 
 class DatabaseDriver(abc.ABC):
   @abc.abstractmethod
-  def add_module(self, module: ModuleInfo) -> None:
+  def add_module(self, module: ModuleInfo, overwrite: bool = False) -> bool:
     """
     Creates a module in the database.
     :param module: The description of the module to add.
+    :param overwrite: Whether or not the info should be overwritten if it exists.
+    :returns: True if a new module was created, False if a module with that name already exists
     """
     pass
 
@@ -215,29 +217,39 @@ class SqliteDatabaseDriver(DatabaseDriver):
   def deserialise_members(members: str) -> Set[int]:
     return {int(i) for i in filter(None, members.split(','))}
 
-  def add_module(self, module: ModuleInfo) -> None:
+  def add_module(self, module: ModuleInfo, overwrite: bool = False) -> bool:
     cur: sqlite3.Cursor
+
+    # MAKE SURE THAT THIS IS A STATIC STRING!!! WE DO NOT WANT SQLi
+    overwrite_sql = " ON CONFLICT(code) DO UPDATE SET name=excluded.name" if overwrite else "" # role_id=excluded.role_id, channel_id=excluded.
+
     with closing(self.db.cursor()) as cur:
-      cur.execute("INSERT INTO modules(code, name, role_id, channel_id) VALUES (?, ?, ?, ?)",
-                  (module.module_code, module.module_name, module.role_id, module.channel_id))
-      self.db.commit()
+      try:
+        cur.execute("INSERT INTO modules(code, name) VALUES (?, ?)" + overwrite_sql,# , role_id, channel_id
+                    (module.module_code, module.module_name)) # , module.role_id, module.channel_id
+        self.db.commit()
+        return True
+      except sqlite3.Error as exn:
+        if exn.sqlite_errorcode != sqlite3.SQLITE_CONSTRAINT_UNIQUE:
+          raise
+        return False
 
   def get_module(self, module_code: str) -> Optional[ModuleInfo]:
     cur: sqlite3.Cursor
     with closing(self.db.cursor()) as cur:
-      cur.execute("SELECT code, name, role_id, channel_id FROM modules WHERE code=? LIMIT 1", (module_code,))
+      cur.execute("SELECT code, name FROM modules WHERE code=? LIMIT 1", (module_code,)) # , role_id, channel_id
       res = cur.fetchone()
     if res is None:
       return None
     else:
-      return ModuleInfo(module_code=res[0], module_name=res[1], role_id=res[2], channel_id=res[3])
+      return ModuleInfo(module_code=res[0], module_name=res[1]) # , role_id=res[2], channel_id=res[3]
 
   def list_modules(self) -> Dict[str, ModuleInfo]:
     cur: sqlite3.Cursor
     with closing(self.db.cursor()) as cur:
-      cur.execute("SELECT code, name, role_id, channel_id FROM modules",)
+      cur.execute("SELECT code, name FROM modules") # , role_id, channel_id
       res = cur.fetchall()
-    return {i[0]: ModuleInfo(module_code=i[0], module_name=i[1], role_id=i[2], channel_id=i[3]) for i in res}
+    return {i[0]: ModuleInfo(module_code=i[0], module_name=i[1]) for i in res} # , role_id=i[2], channel_id=i[3]
 
   def delete_module(self, module_code: str) -> None:
     with closing(self.db.cursor()) as cur:
@@ -256,7 +268,7 @@ class SqliteDatabaseDriver(DatabaseDriver):
   def get_study_group(self, module_code: str, group_id: int) -> Optional[StudyGroupInfo]:
     cur: sqlite3.Cursor
     with closing(self.db.cursor()) as cur:
-      cur.execute("SELECT id, module_code, date_created, members, invite_only FROM study_groups WHERE module_code=? AND id=? group=? LIMIT 1",
+      cur.execute("SELECT id, module_code, date_created, members, invite_only FROM study_groups WHERE module_code=? AND id=? LIMIT 1",
                   (module_code, group_id))
       res = cur.fetchone()
     if res is None:
@@ -341,7 +353,7 @@ class SqliteDatabaseDriver(DatabaseDriver):
   def peek_queue_for_study_group(self, module_code: str, limit: int = 1) -> List[QueuedStudyGroupInfo]:
     cur: sqlite3.Cursor
     with closing(self.db.cursor()) as cur:
-      cur.execute("SELECT module_code, member_id, time FROM study_groups WHERE module_code=? LIMIT ?", (module_code, limit))
+      cur.execute("SELECT module_code, member_id, time FROM study_group_queue WHERE module_code=? LIMIT ?", (module_code, limit))
       return [QueuedStudyGroupInfo(module_code = res[0], member_id=res[1], time=datetime.datetime.utcfromtimestamp(res[2])) for res in cur.fetchall()]
 
   def init_db(self):
@@ -349,9 +361,9 @@ class SqliteDatabaseDriver(DatabaseDriver):
     with closing(self.db.cursor()) as cur:
       cur.execute("CREATE TABLE IF NOT EXISTS modules ("
                   "code TEXT NOT NULL PRIMARY KEY UNIQUE,"
-                  "name TEXT NOT NULL,"
-                  "role_id INTEGER NOT NULL UNIQUE,"
-                  "channel_id INTEGER NOT NULL UNIQUE"
+                  "name TEXT NOT NULL"
+                  # "role_id INTEGER NOT NULL UNIQUE,"
+                  # "channel_id INTEGER NOT NULL UNIQUE"
                   ")")
       cur.execute("CREATE TABLE IF NOT EXISTS study_groups ("
                   "id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,"
