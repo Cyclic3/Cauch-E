@@ -253,7 +253,7 @@ class SqliteDatabaseDriver(DatabaseDriver):
 
   def delete_module(self, module_code: str) -> None:
     with closing(self.db.cursor()) as cur:
-      cur.execute("DELETE FROM modules WHERE code=? LIMIT 1", (module_code,))
+      cur.execute("DELETE FROM modules WHERE code=?", (module_code,))
       self.db.commit()
 
   def create_study_group(self, module_code: str, invite_only: bool) -> int:
@@ -286,7 +286,7 @@ class SqliteDatabaseDriver(DatabaseDriver):
 
   def delete_study_group(self, module_code: str, group_id: int) -> None:
     with closing(self.db.cursor()) as cur:
-      cur.execute("DELETE FROM study_groups WHERE module_code=? AND group_id=? LIMIT 1", (module_code, group_id))
+      cur.execute("DELETE FROM study_groups WHERE module_code=? AND group_id=?", (module_code, group_id))
       self.db.commit()
 
   def delete_all_study_groups(self, module_code: str) -> None:
@@ -298,39 +298,39 @@ class SqliteDatabaseDriver(DatabaseDriver):
     cur: sqlite3.Cursor
     with closing(self.db.cursor()) as cur:
       # This needs to be atomic, so we lock the entire db because sqlite doesn't have per-row/per-table locks
-      cur.execute("BEGIN EXCLUSIVE")
+      # cur.execute("BEGIN EXCLUSIVE")
       cur.execute("SELECT members FROM study_groups WHERE module_code=? AND id=? LIMIT 1", (module_code, group_id))
       res = cur.fetchone()
       if res is not None:
         members = self.deserialise_members(res[0])
         members.add(member)
-        cur.execute("UPDATE study_groups SET members=? WHERE module_code=? AND id=? LIMIT 1", (self.serialise_members(members), module_code, group_id))
-      cur.execute("COMMIT")
+        cur.execute("UPDATE study_groups SET members=? WHERE module_code=? AND id=?", (self.serialise_members(members), module_code, group_id))
+        self.db.commit()
+      # cur.execute("COMMIT")
 
   def remove_from_study_group(self, module_code: str, group_id: int, member: int) -> None:
     cur: sqlite3.Cursor
     with closing(self.db.cursor()) as cur:
       # This needs to be atomic, so we lock the entire db because sqlite doesn't have per-row/per-table locks
-      cur.execute("BEGIN EXCLUSIVE")
+      # cur.execute("BEGIN EXCLUSIVE")
       cur.execute("SELECT members FROM study_groups WHERE module_code=? AND id=? LIMIT 1", (module_code, group_id))
       res = cur.fetchone()
       if res is not None:
         members = self.deserialise_members(res[0])
         members.remove(member)
-        cur.execute("UPDATE study_groups SET members=? WHERE module_code=? AND id=? LIMIT 1", (self.serialise_members(members), module_code, group_id))
-      cur.execute("COMMIT")
+        cur.execute("UPDATE study_groups SET members=? WHERE module_code=? AND id=?", (self.serialise_members(members), module_code, group_id))
+        self.db.commit()
+      # cur.execute("COMMIT")
 
 
   def modify_study_group(self, module_code: str, group_id: int, invite_only: Optional[bool] = None) -> None:
     ur: sqlite3.Cursor
     with closing(self.db.cursor()) as cur:
-      # This needs to be atomic, so we lock the entire db because sqlite doesn't have per-row/per-table locks
-      cur.execute("BEGIN EXCLUSIVE")
       if invite_only is not None:
-        cur.execute("UPDATE invite_only SET members=? WHERE module_code=? AND id=? LIMIT 1",
+        cur.execute("UPDATE invite_only SET members=? WHERE module_code=? AND id=?",
                     (invite_only, module_code, group_id))
 
-      cur.execute("COMMIT")
+        self.db.commit()
 
   def queue_for_study_group(self, module_code: str, member_id: int) -> bool:
     cur: sqlite3.Cursor
@@ -347,7 +347,7 @@ class SqliteDatabaseDriver(DatabaseDriver):
   def unqueue_from_study_group(self, module_code: str, member_id: int) -> None:
     cur: sqlite3.Cursor
     with closing(self.db.cursor()) as cur:
-      cur.execute("DELETE FROM study_group_queue WHERE module_code=? AND member_id=? LIMIT 1", (module_code, member_id))
+      cur.execute("DELETE FROM study_group_queue WHERE module_code=? AND member_id=?", (module_code, member_id))
       self.db.commit()
 
   def peek_queue_for_study_group(self, module_code: str, limit: int = 1) -> List[QueuedStudyGroupInfo]:

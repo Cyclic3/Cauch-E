@@ -248,7 +248,7 @@ class GroupCommands(commands.GroupCog, name="group"):
         updated_groups.append(group)
 
       # Try to create a new group
-      while len(new_group := cauch_e.db.driver.peek_queue_for_study_group(module_code)) == target_size:
+      while len(new_group := cauch_e.db.driver.peek_queue_for_study_group(module_code, target_size)) == target_size:
         group_id = cauch_e.db.driver.create_study_group(module_code, invite_only=False)
         for i in new_group:
           cauch_e.db.driver.add_to_study_group(module_code, group_id, i.member_id)

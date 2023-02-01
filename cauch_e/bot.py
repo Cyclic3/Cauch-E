@@ -17,20 +17,15 @@ import cauch_e.error
 #
 
 class OpenCommands(commands.Cog):
-  @discord.app_commands.command(name="ping", description="Spooky command")
-  async def ping(self, interaction: discord.Interaction) -> None:
-    await interaction.response.send_message("Pong")
+  # @discord.app_commands.command(name="ping", description="Spooky command")
+  # async def ping(self, interaction: discord.Interaction) -> None:
+  #   await interaction.response.send_message("Pong")
 
   @discord.app_commands.command(name="latex", description="Renders a LaTeX equation using codecogs API")
   async def latex(self, interaction: discord.Interaction, latex: str) -> None:
     # TODO: fix for light mode
     latex = urllib.parse.quote(latex)
     await interaction.response.send_message(f'https://latex.codecogs.com/png.latex?\\dpi{{200}}\\color{{white}}{latex}')
-
-
-  @discord.app_commands.command(name="fail", description="Spookier command")
-  async def fail(self, interaction: discord.Interaction, arg: str):
-    await cauch_e.error.report_error(bot=self.bot, interaction=interaction, message="Manually failed")
 
   def __init__(self, bot: commands.Bot):
     self.bot = bot
